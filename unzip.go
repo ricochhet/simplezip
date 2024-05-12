@@ -3,6 +3,7 @@ package simplezip
 import (
 	"archive/zip"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -10,18 +11,26 @@ import (
 	"strings"
 )
 
-func Unzip(dirPath, outPath string) error {
-	return UnzipByPrefix(dirPath, outPath, "")
+func DefaultUnzipMessenger() ZipMessenger {
+	return ZipMessenger{
+		AddedFile: func(path string) {
+			fmt.Println("Unzipping file: " + path)
+		},
+	}
 }
 
-func UnzipByPrefix(dirPath, outPath, extractPrefix string) error {
+func Unzip(dirPath, outPath string) error {
+	return UnzipByPrefixWithMessenger(dirPath, outPath, "", DefaultUnzipMessenger())
+}
+
+func UnzipByPrefixWithMessenger(dirPath, outPath, extractPrefix string, messenger ZipMessenger) error {
 	stepCopyBytes := 1024
-	zipread, err := zip.OpenReader(dirPath)
+	zipRead, err := zip.OpenReader(dirPath)
 	if err != nil { //nolint:wsl // gofumpt conflict
 		return err
 	}
 
-	for _, file := range zipread.File {
+	for _, file := range zipRead.File {
 		readclose, err := file.Open()
 		if err != nil {
 			return err
@@ -38,6 +47,7 @@ func UnzipByPrefix(dirPath, outPath, extractPrefix string) error {
 		}
 
 		destPath := filepath.Join(outPath, name)
+		messenger.AddedFile(destPath)
 
 		if file.FileInfo().IsDir() {
 			if err := os.MkdirAll(destPath, os.ModePerm); err != nil {
@@ -48,7 +58,7 @@ func UnzipByPrefix(dirPath, outPath, extractPrefix string) error {
 		}
 	}
 
-	zipread.Close()
+	zipRead.Close()
 
 	return nil
 }
@@ -61,18 +71,18 @@ func maybeTrimPrefix(trimmable, prefix string) string {
 	return trimmable
 }
 
-func stepCopy(apath string, src io.Reader, stepCopyBytes int64) error {
-	if err := os.MkdirAll(filepath.Dir(apath), os.ModePerm); err != nil {
+func stepCopy(dirPath string, outPath io.Reader, stepCopyBytes int64) error {
+	if err := os.MkdirAll(filepath.Dir(dirPath), os.ModePerm); err != nil {
 		return err
 	}
 
-	dst, err := os.Create(apath)
+	destPath, err := os.Create(dirPath)
 	if err != nil {
 		return err
 	}
 
 	for {
-		_, err := io.CopyN(dst, src, stepCopyBytes)
+		_, err := io.CopyN(destPath, outPath, stepCopyBytes)
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				break
@@ -82,7 +92,7 @@ func stepCopy(apath string, src io.Reader, stepCopyBytes int64) error {
 		}
 	}
 
-	dst.Close()
+	destPath.Close()
 
 	return nil
 }
